@@ -3,75 +3,78 @@
 #include <cstdlib>
 #include <ctime>
 
+#define BLOCK_SIZE 16
+
 using namespace std;
+__global__ void iniMatriz(int* matriz, int numFilas, int numColumnas) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(row < numFilas && col < numColumnas) {
+        curandState state;
+        curand_init(clock64(), row * numColumnas + col, 0, &state);
+        matriz[row * numColumnas + col] = curand(&state) % 256;
+    }
+}
+
+__global__ void sacarProducto(int* matriz1, int* matriz2, int* sacarProducto, int numFilas, int numColumnas) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(row < numFilas && col < numColumnas) {
+        int sum = 0;
+        for(int i = 0; i < numColumnas; ++i) {
+            sum += matriz1[row * numColumnas + i] * matriz2[i * numColumnas + col];
+        }
+        sacarProducto[row * numColumnas + col] = sum;
+    }
+}
+
+void printMatriz(int* matriz, int numFilas, int numColumnas) {
+    for(int i = 0; i < numFilas; ++i) {
+        for(int j = 0; j < numColumnas; ++j) {
+            cout << matriz[i * numColumnas + j] << " ";
+        }
+        cout << endl;
+    }
+}
+
 int main() {
-    srand(time(0)); // generar números aleatorios
+    int numFilas = 3;
+    int numColumnas = 3;
 
-    int numFilas = 10; //
-    int numColumnas = 10; //
+    int* matriz1;
+    int* matriz2;
+    int* matrizProducto;
 
-    //  matrices
-    int** matriz1 = new int*[numFilas];
-    int** matriz2 = new int*[numFilas];
-    int** matrizProducto = new int*[numFilas];
-    for(int i = 0; i < numFilas; ++i) {
-        matriz1[i] = new int[numColumnas];
-        matriz2[i] = new int[numColumnas];
-        matrizProducto[i] = new int[numColumnas];
-    }
+    cudaMallocManaged(&matriz1, numFilas * numColumnas * sizeof(int));
+    cudaMallocManaged(&matriz2, numFilas * numColumnas * sizeof(int));
+    cudaMallocManaged(&matrizProducto, numFilas * numColumnas * sizeof(int));
 
-    // Llenar las primeras dos matrices con valores aleatorios en el rango de un byte
-    for(int i = 0; i < numFilas; ++i) {
-        for(int j = 0; j < numColumnas; ++j) {
-            matriz1[i][j] = rand() % 256;
-            matriz2[i][j] = rand() % 256;
-        }
-    }
+    dim3 hilosPorBlock(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 numBlocks((numColumnas + hilosPorBlock.x - 1) / hilosPorBlock.x, (numFilas + hilosPorBlock.y - 1) / hilosPorBlock.y);
 
-    // Calcular el producto de las dos matrices
-    for(int i = 0; i < numFilas; ++i) {
-        for(int j = 0; j < numColumnas; ++j) {
-            matrizProducto[i][j] = 0;
-            for(int k = 0; k < numColumnas; ++k) {
-                matrizProducto[i][j] += matriz1[i][k] * matriz2[k][j];
-            }
-        }
-    }
+    iniMatriz<<>>(matriz1, numFilas, numColumnas);
+    cudaDeviceSynchronize();
 
-    // Imprimir las tres matrices
-    std::cout << "Matriz 1:" << std::endl;
-    for(int i = 0; i < numFilas; ++i) {
-        for(int j = 0; j < numColumnas; ++j) {
-            cout << matriz1[i][j] << " ";
-        }
-        cout << endl;
-    }
+    iniMatriz<<>>(matriz2, numFilas, numColumnas);
+    cudaDeviceSynchronize();
 
-    std::cout << "Matriz 2:" << std::endl;
-    for(int i = 0; i < numFilas; ++i) {
-        for(int j = 0; j < numColumnas; ++j) {
-            cout << matriz2[i][j] << " ";
-        }
-        cout << endl;
-    }
+    sacarProducto<<>>(matriz1, matriz2, matrizProducto, numFilas, numColumnas);
+    cudaDeviceSynchronize();
+
+    cout << "Matriz 1:" << endl;
+    printMatriz(matriz1, numFilas, numColumnas);
+
+    cout << "Matriz 2:" << endl;
+    printMatriz(matriz2, numFilas, numColumnas);
 
     cout << "Matriz Producto:" << endl;
-    for(int i = 0; i < numFilas; ++i) {
-        for(int j = 0; j < numColumnas; ++j) {
-            std::cout << matrizProducto[i][j] << " ";
-        }
-        cout << endl;
-    }
+    printMatriz(matrizProducto, numFilas, numColumnas);
 
-    // Liberar la memoria
-    for(int i = 0; i < numFilas; ++i) {
-        delete [] matriz1[i];
-        delete [] matriz2[i];
-        delete [] matrizProducto[i];
-    }
-    delete [] matriz1;
-    delete [] matriz2;
-    delete [] matrizProducto;
+    cudaFree(matriz1);
+    cudaFree(matriz2);
+    cudaFree(matrizProducto);
 
     return 0;
 }
